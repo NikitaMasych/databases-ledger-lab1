@@ -14,7 +14,7 @@ Web3 exchange system.
 
     User Update: A trigger to automatically set updated_at timestamp when row is updated.
 
-    Balance Update: A trigger that updates user balances in the Wallets table after each transaction to reflect changes in assets.
+    Liquidity Pool Update: A trigger that updates liquidity pool based on a wallets.
 
     Security Log for Web3 Integrations: A trigger that adds security logs for web3 integrations activity.
 
@@ -24,7 +24,7 @@ Web3 exchange system.
 
 ### Functions
 
-    Calculate Transaction Fee: A function to calculate and return the transaction fee based on the transaction details and gas fees.
+    User 24 hours Trading Volume: A function to aggregate volume of transactions for the past 24 hours for specific user.
 
     User Identity Verification: A function to verify a user's identity for KYC/AML compliance.
 

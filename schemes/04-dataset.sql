@@ -26,14 +26,8 @@ VALUES
 -- Sample data for Wallets table
 INSERT INTO wallets (user_id, asset_id, balance)
 VALUES
-    (1, 1, 10.5),
-    (2, 2, 15.0);
-
--- Sample data for Liquidity Pools table
-INSERT INTO liquidity_pools (asset_id, pool_size)
-VALUES
-    (1, 1000.0),
-    (2, 500.0);
+    (1, 1, 10000),
+    (2, 2, 15000);
 
 -- Sample data for Staking table
 INSERT INTO staking (user_id, asset_id, amount, start_date)

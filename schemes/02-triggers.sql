@@ -1,20 +1,27 @@
 -- Create a BEFORE INSERT OR UPDATE trigger on the Users table
 CREATE OR REPLACE FUNCTION enforce_kyc_aml_compliance() RETURNS TRIGGER AS $$
+DECLARE
+    user_kyc_record RECORD;
 BEGIN
-    -- Check KYC and AML compliance for new user registration or profile update
-    IF NEW.kyc_status IS NULL OR NEW.aml_status IS NULL THEN
-        RAISE EXCEPTION 'KYC and AML compliance statuses are required for user registration or profile update.';
+    -- Retrieve the KYC/AML record for the user
+    SELECT * INTO user_kyc_record
+    FROM kyc_aml
+    WHERE user_id = NEW.user_id;
+
+    -- Check KYC and AML compliance
+    IF user_kyc_record.kyc_status IS NULL OR user_kyc_record.aml_status IS NULL THEN
+        RAISE EXCEPTION 'KYC and AML compliance statuses are required for user profile update.';
     END IF;
 
     -- Enforce KYC/AML rules:
-    -- If KYC status is 'pending', disallow registration or profile update.
-    IF NEW.kyc_status = 'pending' THEN
-        RAISE EXCEPTION 'KYC verification is pending. Registration or profile update is not allowed.';
+    -- If KYC status is 'pending', disallow profile update.
+    IF user_kyc_record.kyc_status = 'pending' THEN
+        RAISE EXCEPTION 'KYC verification is pending. Profile update is not allowed.';
     END IF;
 
     -- AML check: Prevent registration if AML status is 'suspicious.'
-    IF NEW.aml_status = 'suspicious' THEN
-        RAISE EXCEPTION 'AML status is suspicious. Registration or profile update is not allowed.';
+    IF user_kyc_record.aml_status = 'suspicious' THEN
+        RAISE EXCEPTION 'AML status is suspicious. Profile update is not allowed.';
     END IF;
 
     RETURN NEW;
@@ -26,33 +33,6 @@ CREATE TRIGGER enforce_kyc_aml_compliance_trigger
 BEFORE UPDATE ON Users
 FOR EACH ROW
 EXECUTE FUNCTION enforce_kyc_aml_compliance();
-
-----------------------------------------------------------------------------------------------------
-
--- Create an AFTER INSERT trigger on the Transactions table
-CREATE OR REPLACE FUNCTION update_wallet_balance_trigger() RETURNS TRIGGER AS $$
-BEGIN
-    -- Update the buyer's and seller's wallet balances based on the transaction
-
-    -- Update the buyer's balance by subtracting the purchased asset.
-    UPDATE wallets
-    SET balance = balance - (NEW.price * NEW.quantity)
-    WHERE user_id = NEW.buyer_user_id AND asset_id = NEW.asset_id;
-
-    -- Update the seller's balance by adding the sold asset.
-    UPDATE wallets
-    SET balance = balance + NEW.quantity
-    WHERE user_id = NEW.seller_user_id AND asset_id = NEW.asset_id;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Attach the trigger to the Transactions table
-CREATE TRIGGER after_insert_update_wallet_balance
-AFTER INSERT ON transactions
-FOR EACH ROW
-EXECUTE FUNCTION update_wallet_balance_trigger();
 
 ----------------------------------------------------------------------------------------------------
 
@@ -118,3 +98,44 @@ CREATE TRIGGER transactions_validation_trigger
 BEFORE INSERT OR UPDATE ON transactions
 FOR EACH ROW
 EXECUTE FUNCTION validate_transaction();
+
+----------------------------------------------------------------------------------------------------
+
+-- Create an AFTER INSERT OR DELETE trigger on the Wallets table to update liquidity pool size
+CREATE OR REPLACE FUNCTION update_liquidity_pool_size()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check if a record exists in the liquidity pool for the asset
+    IF TG_OP = 'INSERT' THEN
+        -- Increase the liquidity pool size when a new liquidity provider adds tokens.
+        UPDATE liquidity_pools
+        SET pool_size = COALESCE(pool_size, 0) + NEW.balance
+        WHERE asset_id = NEW.asset_id;
+        
+        -- If there is no existing record for the asset, insert a new record.
+        IF NOT FOUND THEN
+            INSERT INTO liquidity_pools (asset_id, pool_size)
+            VALUES (NEW.asset_id, NEW.balance);
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Decrease the liquidity pool size when a liquidity provider removes tokens.
+        UPDATE liquidity_pools
+        SET pool_size = COALESCE(pool_size, 0) - OLD.balance
+        WHERE asset_id = OLD.asset_id;
+        
+        -- If there is no existing record for the asset, insert a new record.
+        IF NOT FOUND THEN
+            INSERT INTO liquidity_pools (asset_id, pool_size)
+            VALUES (OLD.asset_id, -OLD.balance);
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Attach the trigger to the Wallets table for INSERT and DELETE operations
+CREATE TRIGGER after_insert_or_delete_update_liquidity_pool_size
+AFTER INSERT OR DELETE ON wallets
+FOR EACH ROW
+EXECUTE FUNCTION update_liquidity_pool_size();
